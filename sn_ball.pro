@@ -37,7 +37,7 @@ PRO sn_ball, mag, lam0, lam1, precision, cenpix=cenpix, band=band, nd=nd, ftime=
   if keyword_set(lam0) eq 0 then lam0=1.29    ; Short-wavelength limit
   if keyword_set(lam1) eq 0 then lam1=1.51    ; Long-wavelength limit
   if keyword_set(nd) eq 0 then nd=0.          ; if the nuetral density is not set, then set it to 1.0
-  if keyword_set(verbose) eq 0 then verbose=0 ; if verbose keyword is not set, turn off final report
+  if keyword_set(verbose) eq 0 then verbose=1 ; if verbose keyword is not set, turn off final report
   if keyword_set(spt) eq 0 then spt='G3'      ; Spectral type
   if keyword_set(ftime) eq 0 then ftime=7200. ; Total observation time
   if keyword_set(etime) eq 0 then etime=2.7   ; Integration exposure time
@@ -144,7 +144,6 @@ PRO sn_ball, mag, lam0, lam1, precision, cenpix=cenpix, band=band, nd=nd, ftime=
   c = 2.99792458d17                       ; Speed of light [nm/s]
   
   starfluxphotons=starflam*starlam/(h*c)  ; Flux [photon s-1 cm-2 nm-1]
-
   ;according to the gemini page, a star at V=0 is 9.71d3 [photon s-1 cm-2 nm-1] 
   ;at a wavelength of 0.55 micron (http://www.gemini.edu/?q=node/10257).
   ; I=0 is 3.90d3, wavelength is 0.87 microns. K=0 is 4.5d2, wavelength is 2.2
@@ -182,7 +181,6 @@ PRO sn_ball, mag, lam0, lam1, precision, cenpix=cenpix, band=band, nd=nd, ftime=
   atmrad = atmrad*(100d)^2         ; ph  s-1  m-2 arcsec-2
   
   thermalrad = telrad + atmrad     ; ph  s-1  m-2 arcsec-2
-
   ; Gemini Sky Background Data Files (http://www.gemini.edu/sciops/telescopes-and-sites/observing-condition-constraints/ir-background-spectra#Near-IR-short)
   ;
   ; The files were manufactured starting from the sky transmission 
@@ -211,7 +209,7 @@ PRO sn_ball, mag, lam0, lam1, precision, cenpix=cenpix, band=band, nd=nd, ftime=
   skynorm_bal = where(skylam  gt 2200. and skylam lt 2250.)
   skylines2 = skylines - (mean(skylines(skynorm_mk)) - mean(thermalrad(skynorm_bal))) ; ph  s-1  m-2 arcsec-2 nm-1
   skylines2 = skylines2*abs(deriv(lamskyline)) ; ph  s-1  m-2 arcsec-2
-  
+
   if opt then begin
     ;Sky emission for optical wavelengths; from MODTRAN plots by Terry
     ; Convert Rayleighs to ph s-1 -- from http://www.irf.se/~urban/avh/html/node13.html
@@ -227,7 +225,6 @@ loadskip:
 
   ;define the part of the spectrum that we care about.    
   ; The input bandpass definitions are in micron 
-
   inband=where(skylam/1d3 ge lam0 and skylam/1d3 le lam1) & inband = reverse(inband)
   lambda=(skylam)[inband]      ; in nm
   if not opt then $
@@ -238,17 +235,16 @@ loadskip:
   ;now we can scale the spectrum to the desired flux given the V magnitude
   	  
   starfluxphotons_mag=(starfluxphotons/specnorm)*10d^(-mag*1d/2.5)
-
   fjy = starfluxphotons_mag*(h*c/starlam) ; ergs s-1 cm-2 nm-1
   fjy = fjy*abs(deriv(starlam)) ; erg s-1 cm-2
   fjy = fjy/abs(deriv(c/starlam)) ; erg s-1 cm-2 Hz-1
   fjy = fjy*1.d23 ; Jy
-
   ;interpolate the stellar model onto the wavelength grid of
   ;transmission spectrum, again keep microns and nm straight
   starflux=interpol(starfluxphotons_mag, starlam, lambda)
+
   fjy = mean(interpol(fjy,starlam,lambda))
-  
+
   ; Flux as observed from observatory
   starflux_trn=starflux*trans ; Flux [photon s-1 cm-2 nm-1] 
   
@@ -278,7 +274,7 @@ loadskip:
   sigma1=(fwhm/2.36d)/pixel_size ;sigma of gaussian, in pixels, assuming that the 80% diameter ~ FWHM
 
   central_pix_frac=(sgauss(indgen(101)-50))[50] / ((lam1-lam0)/pixel_lam)
-  
+
    ;this is photons/s in central pixel, assuming PSF is aligned with center of pixel
   central_pix_flux=[central_pix_frac*star_photons, totalsky*pixel_size^2d]
   

@@ -172,8 +172,8 @@ def sn_ball(**kwargs):
         'G50','G50']
         
         # Read the selected spectral type
-        model = models[spt == SP] 
-        tag = mtags[spt == SP]
+        model = models[SP.index(spt)] 
+        tag = mtags[SP.index(spt)]
         star = pyfits.getdata(DIR+model)
         #tagnum = where(strcmp(tag,tag_names(star)))
         starflam = star[tag]*10.0            # Flux [ergs s-1 cm-2 nm-1]
@@ -181,8 +181,8 @@ def sn_ball(**kwargs):
         h = 6.62606957e-27                 # Planck's constant [erg s photon-1]
         c = 2.99792458e17                    # Speed of light [nm/s]
         
-        starfluxphotons=starflam*starlam/(h*c)  # Flux [photon s-1 cm-2 nm-1]
-        
+        starfluxphotons=(starflam*starlam)/(h*c)  # Flux [photon s-1 cm-2 nm-1]
+
         # according to the gemini page, a star at V=0 is 9.71d3 
         # [photon s-1 cm-2 nm-1]  at a wavelength of 0.55 micron 
         # (http://www.gemini.edu/?q=node/10257). I=0 is 3.90d3, wavelength is 
@@ -201,7 +201,7 @@ def sn_ball(**kwargs):
         
         # next, we will get the various sources of background photons tabulated
         # If observing in the optical, skip the thermal + OH contributions
-        
+
         if not opt:
             # Telescope background
             telrad = planck(skylam*10.,Ttel)*ntel     # erg s-1 cm-2 sr-1 A-1
@@ -223,7 +223,7 @@ def sn_ball(**kwargs):
             atmrad = atmrad*(100.0)**2         # ph  s-1  m-2 arcsec-2
             
             thermalrad = telrad + atmrad     # ph  s-1  m-2 arcsec-2
-            
+
         # Gemini Sky Background Data Files 
         # (http://www.gemini.edu/sciops/telescopes-and-sites/observing-
         #     condition-constraints/ir-background-spectra#Near-IR-short)
@@ -275,8 +275,8 @@ def sn_ball(**kwargs):
     # The input bandpass definitions are in micron 
     
     inband= (skylam/1e3 >= lam0)*(skylam/1.0e3 <= lam1)
-    inband = np.invert(inband)
     lambda_= skylam[inband]      # in nm
+
     if not opt:
         trans = skytrn[inband]      # Transmittance
     else:
@@ -285,19 +285,20 @@ def sn_ball(**kwargs):
     # now we can scale the spectrum to the desired flux given the V magnitude
     
     starfluxphotons_mag=(starfluxphotons/specnorm)*10.0**(-mag*1.0/2.5)
-    
+
     fjy = starfluxphotons_mag*(h*c/starlam) # ergs s-1 cm-2 nm-1
     fjy = fjy*np.abs(deriv(starlam)) # erg s-1 cm-2
     fjy = fjy/np.abs(deriv(c/starlam)) # erg s-1 cm-2 Hz-1
     fjy = fjy*1.0e23 # Jy
-    
+
     # interpolate the stellar model onto the wavelength grid of
     # transmission spectrum, again keep microns and nm straight
     #starflux=interpol(starfluxphotons_mag, starlam, lambda_)
     #fjy = np.mean(interpol(fjy,starlam,lambda_))
     starflux=np.interp(lambda_, starlam, starfluxphotons_mag)
+
     fjy = np.mean(np.interp(lambda_, starlam, fjy))   
- 
+
     # Flux as observed from observatory
     starflux_trn=starflux*trans # Flux [photon s-1 cm-2 nm-1] 
     
@@ -330,7 +331,7 @@ def sn_ball(**kwargs):
     sigma1=(fwhm/2.36)/pixel_size 
     
     central_pix_frac = sgauss(np.arange(101)-50, sigma1)[50] / \
-                     (lam1-lam0)/pixel_lam
+                     ((lam1-lam0)/pixel_lam)
     
     # this is photons/s in central pixel, assuming PSF is aligned with center of pixel
     central_pix_flux=[central_pix_frac*star_photons, totalsky*pixel_size**2]
@@ -362,14 +363,15 @@ def sn_ball(**kwargs):
         # if we are non-linear within the exptime, then set the signal to negative
         # if using adaptive exptime, decrease exptime and recalculate
         cenpix = [expt1*np.array(central_pix_flux),full_well]
-        if np.sum(cenpix[0:1]) > full_well:
-            if not adapt:
-                precision = -1.0*np.array(precision)
-            if adapt:
-                expt1 = expt1 - 1 
-                adaptexp = True
-            else: 
-                adaptexp = False
+
+        if np.sum(cenpix[0]) > full_well:
+            #if not adapt:
+            #    precision = -1.0*np.array(precision)
+            #if adapt:
+            expt1 = expt1 - 1 
+            adaptexp = True
+        else: 
+            adaptexp = False
         
     # Print results
     if verbose:
@@ -383,7 +385,7 @@ def sn_ball(**kwargs):
         print 'Object signal:  ', signal
         print 'Expected noise: ', noise1
         print 'Expected precision:   ', 1.0e6*noise1*np.sqrt(1.7)/signal
-        print 'Fraction of Sat. Lim.:   ', np.sum(cenpix[0:1])/full_well
+        print 'Fraction of Sat. Lim.:   ', np.sum(cenpix[0])/full_well
         print '---------------------------------------------'
 
 
