@@ -29,6 +29,11 @@ Created by Avi Mandell, updated by Brett Morris
 """
 import numpy as np
 import pyfits
+import os
+from glob import glob
+import cPickle
+from urllib import urlopen
+import time
 
 def sgauss(x, sigma1):
     return (1./(2.*np.pi*sigma1**2))*np.exp(-(x**2)/(2*sigma1**2))
@@ -60,13 +65,71 @@ def planck(wave, temp):
     bbflux = c1 / ( w**5 * ( np.exp(val)-1. ) )
     return bbflux*1.0e-8              # Convert to ergs/cm2/s/A
 
+def downloadAndPickle():
+    exodbPath = 'db'
+    pklDatabaseName = os.path.join(exodbPath,'exoplanetDB.pkl')	 ## Name of exoplanet database C-pickle
+    pklDatabasePaths = glob(pklDatabaseName)   ## list of files with the name pklDatabaseName in cwd
+    csvDatabaseName = os.path.join(exodbPath,'exoplanets.csv')  ## Path to the text file saved from exoplanets.org
+    csvDatabasePaths = glob(csvDatabaseName)
+
+    '''First, check if there is an internet connection.'''
+
+    '''If there's a previously archived database pickle in this current working 
+        directory then use it, if not, grab the data from exoplanets.org in one big CSV file and make one.
+        If the old archive is >14 days old, grab a fresh version of the database from exoplanets.org.
+        '''
+    if csvDatabasePaths == []:
+        print 'No local copy of exoplanets.org database. Downloading one...'
+        rawCSV = urlopen('http://www.exoplanets.org/csv-files/exoplanets.csv').read()
+        saveCSV = open(csvDatabaseName,'w')
+        saveCSV.write(rawCSV)
+        saveCSV.close()
+    else: 
+        '''If the local copy of the exoplanets.org database is >14 days old, download a new one'''
+        secondsSinceLastModification = time.time() - os.path.getmtime(csvDatabaseName) ## in seconds
+        daysSinceLastModification = secondsSinceLastModification/(60*60*24*30)
+        if daysSinceLastModification > 7:
+            print 'Your local copy of the exoplanets.org database is >14 days old. Downloading a fresh one...'
+            rawCSV = urlopen('http://www.exoplanets.org/csv-files/exoplanets.csv').read()
+            saveCSV = open(csvDatabaseName,'w')
+            saveCSV.write(rawCSV)
+            saveCSV.close()
+        else: print "Your local copy of the exoplanets.org database is <14 days old. That'll do."
+
+    if len(pklDatabasePaths) == 0:
+        print 'Parsing '+os.path.split(csvDatabaseName)[1]+', the CSV database from exoplanets.org...'
+        rawTable = open(csvDatabaseName).read().splitlines()
+        labels = rawTable[0].split(',')
+        #labelUnits = rawTable[1].split(',')
+        #rawTableArray = np.zeros([len(rawTable),len(labels)])
+        exoplanetDB = {}
+        planetNameColumn = np.arange(len(labels))[np.array(labels,dtype=str)=='NAME'][0]
+        for row in range(1,len(rawTable)): 
+            splitRow = rawTable[row].split(',')
+            exoplanetDB[splitRow[planetNameColumn]] = {}	## Create dictionary for this row's planet
+            for col in range(0,len(splitRow)):
+                exoplanetDB[splitRow[planetNameColumn]][labels[col]] = splitRow[col]
+        
+        output = open(pklDatabaseName,'wb')
+        cPickle.dump(exoplanetDB,output)
+        output.close()
+    else: 
+        print 'Using previously parsed database from exoplanets.org...'
+        inputFile = open(pklDatabaseName,'rb')
+        exoplanetDB = cPickle.load(inputFile)
+        inputFile.close()
+    
+    return exoplanetDB
+
+db = downloadAndPickle()
+
 def sn_ball(**kwargs):
     mag = kwargs.get('mag', 4.0)        # Object magnitude in a specific band
     band = kwargs.get('band', 'V').upper() # Band for magnitude entered (V,I,K)
     lam0 = kwargs.get('lam0', 1.29)     # Short-wavelength limit
     lam1 = kwargs.get('lam1', 1.51)     # Long-wavelength limit
     nd = kwargs.get('nd', 0)            # If no nuetral density, set it to 1.0
-    verbose = kwargs.get('verbose', 0)  # If verbose not set, turn off report
+    verbose = kwargs.get('verbose', 1)  # If verbose not set, turn off report
     spt = kwargs.get('spt', 'G3').upper() # Spectral type
     ftime = kwargs.get('ftime', 7200.0) # Total observation time
     etime = kwargs.get('etime', 2.7)    # Integration exposure time
@@ -112,7 +175,7 @@ def sn_ball(**kwargs):
     phot_aper = 5.0*fwhm    # photometric aperture radius in arcseconds,
     #this should be close to optimal for background-limited observations,
     #see Naylor, 1998, MNRAS, 296, 339
-    phot_area = phot_aper**2
+    phot_area = phot_aper#**2
     phot_area_pix = (phot_aper/pixel_size)*((lam1-lam0)/pixel_lam)
     
     # If loading in saved arrays, skip file reading
@@ -189,14 +252,17 @@ def sn_ball(**kwargs):
         # 0.87 microns. K=0 is 4.5d2, wavelength is 2.2
         
         vband= (starlam > 545)*(starlam < 555)
-        iband= (starlam > 865)*(starlam < 875)
+        #iband= (starlam > 865)*(starlam < 875)
+        jband= (starlam > 1105)*(starlam < 1349)
         kband= (starlam > 2195)*(starlam < 2205)
         
         if band == 'V':
             specnorm = np.mean(starfluxphotons[vband])/(9.71e3)
-        elif band == 'I':
-            specnorm = np.mean(starfluxphotons[iband])/(3.90e3)
-        elif band == 'K':
+        #elif band == 'I':
+        #    specnorm = np.mean(starfluxphotons[iband])/(3.90e3)
+        elif band == 'J':
+            specnorm = np.mean(starfluxphotons[jband])/(1.97e3)
+        elif band in ['K', 'KS']:
             specnorm = np.mean(starfluxphotons[kband])/(4.50e2)
         
         # next, we will get the various sources of background photons tabulated
@@ -362,14 +428,15 @@ def sn_ball(**kwargs):
         # if we are non-linear within the exptime, then set the signal to negative
         # if using adaptive exptime, decrease exptime and recalculate
         cenpix = [expt1*np.array(central_pix_flux),full_well]
-        if np.sum(cenpix[0:1]) > full_well:
-            if not adapt:
-                precision = -1.0*np.array(precision)
-            if adapt:
-                expt1 = expt1 - 1 
-                adaptexp = True
-            else: 
-                adaptexp = False
+        decreasefactor = 0.75
+        if np.sum(cenpix[0:1]) > full_well and expt1*decreasefactor > 1:
+            #if not adapt:
+            #    precision = -1.0*np.array(precision)
+            #if adapt:
+            expt1 *= decreasefactor 
+            #    adaptexp = True
+        else: 
+            adaptexp = False
         
     # Print results
     if verbose:
@@ -386,21 +453,55 @@ def sn_ball(**kwargs):
         print 'Fraction of Sat. Lim.:   ', np.sum(cenpix[0:1])/full_well
         print '---------------------------------------------'
 
+def getplanetparams(planet, bandpass):
+    '''
+    Retrieve magnitude and spectral type for each target:
+    
+    Parameters
+    ----------
+    planet : str
+        Name of planet
+    '''
+    return (('band', bandpass),
+            ('mag', float(db[planet][bandpass])), 
+            ('spt', temp2type(db[planet]['TEFF'])))
+
+def temp2type(T_eff):
+    '''
+    Use lookup table, return spectral type for a given effective temperature
+    '''
+    lookup = np.genfromtxt('db/temp2type.txt', 
+                           dtype=[('sptype','S2'), ('temp','i8')])
+    closesttype = lookup['sptype'][np.argmin(np.abs(lookup['temp'] - 
+                                   float(T_eff)))]
+    return closesttype
 
 
 kwargs = {
-    'mag': 4.0,
-    'band': 'V',
     'lam0': 1.29,
     'lam1': 1.51,
     'nd': 0,
     'verbose': 1,
-    'spt': 'G3',
     'ftime': 7200.0,
     'etime': 2.7,
     'pixlam': 0.0015,
-    'adapt': 0,
+    'adapt': 1,
     'load': 0
     }
+    #'mag': 4.0,
+    #'band': 'V',
+    #'spt': 'G3',
 
-sn_ball(**kwargs)
+def sn_ball_planet(planet, bandpass, **kwargs):
+    '''
+    For observations of `planet` in `bandpass`, run sn_ball()
+    '''
+    bandpasses = ['V', 'J', 'H', 'K', 'KS']
+    if bandpass.upper() not in bandpasses:
+        raise ValueError('Band "{0}" not in known bands: {1}'.format(bandpass,
+                         ', '.join(bandpasses)))
+    for key, value in getplanetparams(planet, bandpass):
+        kwargs[key] = value
+    return sn_ball(**kwargs)
+    
+print sn_ball_planet('WASP-6 b', 'K', **kwargs)
